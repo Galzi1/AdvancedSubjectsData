@@ -68,6 +68,24 @@ r <- roc(pred, as.factor(valid.df$BUYER_FLAG))
 plot(r)
 auc(r)
 
+# classification tree - C4.5 algorithm (J48 in RWeka)
+library(RWeka)
+tr <- J48(BUYER_FLAG ~ ., data = train.df)
+# make predictions
+pred <- predict(tr, valid.df)
+
+library(caret)
+confusionMatrix(pred, valid.df$BUYER_FLAG, positive='1')
+
+library(yardstick)
+f_meas_vec(pred, valid.df$BUYER_FLAG, beta = 2)
+f_meas_vec(pred, valid.df$BUYER_FLAG, beta = 5.4)
+
+library(AUC)
+r <- roc(pred, as.factor(valid.df$BUYER_FLAG))
+plot(r)
+auc(r)
+
 # random forest
 rf <- cforest(BUYER_FLAG ~ ., data = train.df)
 plot(rf)
