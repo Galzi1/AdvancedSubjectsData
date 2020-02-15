@@ -5,17 +5,17 @@ cat("\014") # clear the screen
 
 set.seed(5)
 
-data.df <- read.csv("ffp_train.csv")
+data.df <- read.csv("ffp_train_variable_reduce.csv")
 data.df <- data.df[ -c(1) ]
 
 # convert columns to correct classes
-data.df$GROUP <- as.factor(data.df$GROUP)
+# data.df$GROUP <- as.factor(data.df$GROUP)
 data.df$STATUS_PANTINUM <- as.factor(data.df$STATUS_PANTINUM)
 data.df$STATUS_GOLD <- as.factor(data.df$STATUS_GOLD)
 data.df$STATUS_SILVER <- as.factor(data.df$STATUS_SILVER)
 data.df$CALL_FLAG <- as.factor(data.df$CALL_FLAG)
-data.df$CREDIT_PROBLEM <- as.factor(data.df$CREDIT_PROBLEM)
-data.df$RETURN_FLAG <- as.factor(data.df$RETURN_FLAG)
+# data.df$CREDIT_PROBLEM <- as.factor(data.df$CREDIT_PROBLEM)
+# data.df$RETURN_FLAG <- as.factor(data.df$RETURN_FLAG)
 data.df$BENEFIT_FLAG <- as.factor(data.df$BENEFIT_FLAG)
 data.df$BUYER_FLAG <- as.factor(data.df$BUYER_FLAG)
 
@@ -38,7 +38,7 @@ valid.df %>%
 # classification tree - rpart
 library(rpart)
 tr <- rpart(BUYER_FLAG ~ ., data = train.df)
-plot(tr)
+# plot(tr)
 pred <- predict(tr, valid.df, type = "class")
 
 library(caret)
@@ -50,13 +50,13 @@ f_meas_vec(pred, valid.df$BUYER_FLAG, beta = 5.4)
 
 library(AUC)
 r <- roc(pred, as.factor(valid.df$BUYER_FLAG))
-plot(r)
+# plot(r)
 auc(r)
 
 # classification tree - ctree
 library(party)
 tr <- ctree(BUYER_FLAG ~ ., data = train.df)
-plot(tr)
+# plot(tr)
 pred <- predict(tr, valid.df)
 
 library(caret)
@@ -68,13 +68,14 @@ f_meas_vec(pred, valid.df$BUYER_FLAG, beta = 5.4)
 
 library(AUC)
 r <- roc(pred, as.factor(valid.df$BUYER_FLAG))
-plot(r)
+# plot(r)
 auc(r)
 
 # classification tree - C4.5 algorithm (J48 in RWeka)
 library(RWeka)
+library(partykit)
 tr <- J48(BUYER_FLAG ~ ., data = train.df)
-plot(tr)
+# plot(tr)
 pred <- predict(tr, valid.df)
 
 library(caret)
@@ -86,12 +87,13 @@ f_meas_vec(pred, valid.df$BUYER_FLAG, beta = 5.4)
 
 library(AUC)
 r <- roc(pred, as.factor(valid.df$BUYER_FLAG))
-plot(r)
+# plot(r)
 auc(r)
 
 # random forest - cforest
 rf <- cforest(BUYER_FLAG ~ ., data = train.df)
-plot(rf)
+
+# plot(rf)
 pred <- predict(rf, valid.df)
 
 library(caret)
@@ -103,12 +105,12 @@ f_meas_vec(pred, valid.df$BUYER_FLAG, beta = 5.4)
 
 library(AUC)
 r <- roc(pred, as.factor(valid.df$BUYER_FLAG))
-plot(r)
+# plot(r)
 auc(r)
 
 # random forest - randomForest
 library(randomForest)
-rf <- randomForest(BUYER_FLAG ~ ., data = train.df)
+rf <- randomForest(BUYER_FLAG ~ ., data = train.df, ntree = 100)
 pred <- predict(rf, valid.df)
 
 library(caret)
@@ -120,7 +122,7 @@ f_meas_vec(pred, valid.df$BUYER_FLAG, beta = 5.4)
 
 library(AUC)
 r <- roc(pred, as.factor(valid.df$BUYER_FLAG))
-plot(r)
+# plot(r)
 auc(r)
 
 # random forest - obliqueRF
