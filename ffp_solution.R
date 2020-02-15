@@ -1,5 +1,8 @@
 setwd("D:/ть/RProgramming/AdvancedSubjectsData")
 
+rm(list = ls()) # remove all variables from global environment
+cat("\014") # clear the screen
+
 set.seed(5)
 
 data.df <- read.csv("ffp_train.csv")
@@ -71,7 +74,7 @@ auc(r)
 # classification tree - C4.5 algorithm (J48 in RWeka)
 library(RWeka)
 tr <- J48(BUYER_FLAG ~ ., data = train.df)
-# make predictions
+plot(tr)
 pred <- predict(tr, valid.df)
 
 library(caret)
@@ -86,9 +89,118 @@ r <- roc(pred, as.factor(valid.df$BUYER_FLAG))
 plot(r)
 auc(r)
 
-# random forest
+# random forest - cforest
 rf <- cforest(BUYER_FLAG ~ ., data = train.df)
 plot(rf)
-pred2 <- predict(rf, valid.df)
+pred <- predict(rf, valid.df)
 
-confusionMatrix(as.factor(ifelse(pred2>=0.5, 1, 0)), as.factor(valid.df$BUYER_FLAG))
+library(caret)
+confusionMatrix(pred, valid.df$BUYER_FLAG, positive='1')
+
+library(yardstick)
+f_meas_vec(pred, valid.df$BUYER_FLAG, beta = 2)
+f_meas_vec(pred, valid.df$BUYER_FLAG, beta = 5.4)
+
+library(AUC)
+r <- roc(pred, as.factor(valid.df$BUYER_FLAG))
+plot(r)
+auc(r)
+
+# random forest - randomForest
+library(randomForest)
+rf <- randomForest(BUYER_FLAG ~ ., data = train.df)
+pred <- predict(rf, valid.df)
+
+library(caret)
+confusionMatrix(pred, valid.df$BUYER_FLAG, positive='1')
+
+library(yardstick)
+f_meas_vec(pred, valid.df$BUYER_FLAG, beta = 2)
+f_meas_vec(pred, valid.df$BUYER_FLAG, beta = 5.4)
+
+library(AUC)
+r <- roc(pred, as.factor(valid.df$BUYER_FLAG))
+plot(r)
+auc(r)
+
+# random forest - obliqueRF
+library(obliqueRF)
+rf <- obliqueRF(BUYER_FLAG ~ ., data = train.df)
+pred <- predict(rf, valid.df)
+
+library(caret)
+confusionMatrix(pred, valid.df$BUYER_FLAG, positive='1')
+
+library(yardstick)
+f_meas_vec(pred, valid.df$BUYER_FLAG, beta = 2)
+f_meas_vec(pred, valid.df$BUYER_FLAG, beta = 5.4)
+
+library(AUC)
+r <- roc(pred, as.factor(valid.df$BUYER_FLAG))
+plot(r)
+auc(r)
+
+# k-nearest neighbour
+knn_m <- kNN(BUYER_FLAG ~ ., train.df, valid.df, norm=TRUE, k=2)
+
+library(caret)
+confusionMatrix(knn_m, as.factor(valid.df$BUYER_FLAG), positive='1')
+
+library(yardstick)
+f_meas_vec(knn_m, as.factor(valid.df$BUYER_FLAG), beta = 2)
+f_meas_vec(knn_m, as.factor(valid.df$BUYER_FLAG), beta = 5.4)
+
+library(AUC)
+r <- roc(knn_m, as.factor(as.factor(valid.df$BUYER_FLAG)))
+plot(r)
+auc(r)
+
+# logistic regression
+lr <- glm(BUYER_FLAG ~ ., data = train.df, family = binomial())
+pred <- predict(lr, valid.df, type = 'response')
+pred_f <- as.factor(predict)
+
+library(caret)
+confusionMatrix(pred, as.factor(valid.df$BUYER_FLAG), positive='1')
+
+library(yardstick)
+f_meas_vec(pred, valid.df$BUYER_FLAG, beta = 2)
+f_meas_vec(pred, valid.df$BUYER_FLAG, beta = 5.4)
+
+library(AUC)
+r <- roc(pred, as.factor(valid.df$BUYER_FLAG))
+plot(r)
+auc(r)
+
+# gradient boosting - gbm
+gb <-gbm(BUYER_FLAG ~ ., distribution = "bernoulli", data = train.df, n.trees = 1000, interaction.depth = 4, shrinkage = 0.01)
+pred <- predict(gb, valid.df)
+
+library(caret)
+confusionMatrix(pred, valid.df$BUYER_FLAG, positive='1')
+
+library(yardstick)
+f_meas_vec(pred, valid.df$BUYER_FLAG, beta = 2)
+f_meas_vec(pred, valid.df$BUYER_FLAG, beta = 5.4)
+
+library(AUC)
+r <- roc(pred, as.factor(valid.df$BUYER_FLAG))
+plot(r)
+auc(r)
+
+# gradient boosting - xgboost
+xgb <-xgboost(data = train.df, label = train.df$BUYER_FLAG, max.depth = 2, eta = 1, nthread = 2, nround = 2, objective = "binary:logistic")
+pred <- predict(xgb, valid.df)
+
+library(caret)
+confusionMatrix(pred, valid.df$BUYER_FLAG, positive='1')
+
+library(yardstick)
+f_meas_vec(pred, valid.df$BUYER_FLAG, beta = 2)
+f_meas_vec(pred, valid.df$BUYER_FLAG, beta = 5.4)
+
+library(AUC)
+r <- roc(pred, as.factor(valid.df$BUYER_FLAG))
+plot(r)
+auc(r)
+
