@@ -130,11 +130,11 @@ train.index <- sample(1:dim(data.df)[1], dim(data.df)*0.7)
 train.df <- data.df[train.index, ]
 valid.df <- data.df[-train.index, ]
 
-ctrl <- trainControl(method = "repeatedcv", number = 10, repeats = 3, verboseIter = TRUE, summaryFunction = f5.4, allowParallel = TRUE)
+ctrl <- trainControl(method = "repeatedcv", number = 10, repeats = 3, verboseIter = TRUE, summaryFunction = f5.4, allowParallel = TRUE, sampling = "smote")
 
 # knn
 knn_grid <- expand.grid(k = 1:10)
-knnFit <- train(BUYER_FLAG ~ ., data = train.df, method = "knn", trControl = ctrl, preProcess = c("center","scale"), tuneLength = 20, metric = "F5.4", maximize = TRUE)
+knnFit <- train(BUYER_FLAG ~ ., data = train.df, method = "knn", trControl = ctrl, preProcess = c("center","scale", "pca"), tuneLength = 20, metric = "F5.4", maximize = TRUE)
 
 knnPredict <- predict(knnFit, newdata = valid.df)
 
@@ -173,9 +173,9 @@ r <- roc(rfPredict, as.factor(valid.df$BUYER_FLAG))
 auc(r)
 
 # neural network
-nnetCtrl <- trainControl(method = "repeatedcv", number = 10, repeats = 3, verboseIter = TRUE, summaryFunction = f5.4, allowParallel = TRUE)
+nnetCtrl <- trainControl(method = "repeatedcv", number = 10, repeats = 3, verboseIter = TRUE, summaryFunction = f5.4, allowParallel = TRUE, sampling = "smote")
 nnet_grid <- expand.grid(size = c(2, 3, 4, 5, 10, 15), decay = c(0, 0.01, 0.05, 0.1))
-nnetFit <- train(BUYER_FLAG ~ ., data = train.df, method = "nnet", trControl = nnetCtrl, preProcess = c("center","scale"), tuneLength = 20, metric = "F5.4", maximize = TRUE, trace = F, linout = 0, maxit = 1000, tuneGrid = nnet_grid)
+nnetFit <- train(BUYER_FLAG ~ ., data = train.df, method = "nnet", trControl = nnetCtrl, preProcess = c("center","scale", "pca"), tuneLength = 20, metric = "F5.4", maximize = TRUE, trace = F, linout = 0, maxit = 1000, tuneGrid = nnet_grid)
 
 nnetPredict <- predict(nnetFit, newdata = valid.df)
 
@@ -189,7 +189,7 @@ r <- roc(nnetPredict, as.factor(valid.df$BUYER_FLAG))
 auc(r)
 
 # supported vector machines
-svmFit <- train(BUYER_FLAG ~ ., data = train.df, method = "svmLinear", trControl = ctrl, preProcess = c("center","scale"), tuneLength = 20, metric = "F5.4", maximize = TRUE, maxit = 1000)
+svmFit <- train(BUYER_FLAG ~ ., data = train.df, method = "svmLinear", trControl = ctrl, preProcess = c("center","scale", "pca"), tuneLength = 20, metric = "F5.4", maximize = TRUE, maxit = 1000)
 
 svmPredict <- predict(svmFit, newdata = valid.df)
 
@@ -203,7 +203,7 @@ r <- roc(svmPredict, as.factor(valid.df$BUYER_FLAG))
 auc(r)
 
 # logistic regression
-glmFit <- train(BUYER_FLAG ~ ., data = train.df, method = "glm", trControl = ctrl, preProcess = c("center","scale"), tuneLength = 20, metric = "F5.4", maximize = TRUE, maxit = 1000)
+glmFit <- train(BUYER_FLAG ~ ., data = train.df, method = "glm", trControl = ctrl, preProcess = c("center","scale", "pca"), tuneLength = 20, metric = "F5.4", maximize = TRUE, maxit = 1000)
 
 glmPredict <- predict(glmFit, newdata = valid.df)
 
@@ -223,7 +223,7 @@ nb_grid <- expand.grid(
   adjust = seq(0, 5, by = 1)
 )
 
-nbFit <- train(BUYER_FLAG ~ ., data = train.df, method = "nb", trControl = ctrl, preProcess = c("center","scale"), tuneLength = 20, metric = "F5.4", maximize = TRUE, maxit = 1000, tuneGrid = nb_grid)
+nbFit <- train(BUYER_FLAG ~ ., data = train.df, method = "nb", trControl = ctrl, preProcess = c("center","scale", "pca"), tuneLength = 20, metric = "F5.4", maximize = TRUE, maxit = 1000, tuneGrid = nb_grid)
 
 nbPredict <- predict(nbFit, newdata = valid.df)
 
@@ -237,9 +237,9 @@ r <- roc(nbPredict, as.factor(valid.df$BUYER_FLAG))
 auc(r)
 
 # rpart
-rpart_ctrl <- trainControl(method = "repeatedcv", number = 10, repeats = 3, verboseIter = TRUE, summaryFunction = f5.4)
+rpart_ctrl <- trainControl(method = "repeatedcv", number = 10, repeats = 3, verboseIter = TRUE, summaryFunction = f5.4, sampling = "smote")
 rpart_grid <- expand.grid(cp = seq(0.001, 0.1, by = 0.001))
-rpartFit <- train(BUYER_FLAG ~ ., data = train.df, method = "rpart", trControl = rpart_ctrl, preProcess = c("center","scale"), tuneLength = 20, metric = "F5.4", maximize = TRUE, tuneGrid = rpart_grid)
+rpartFit <- train(BUYER_FLAG ~ ., data = train.df, method = "rpart", trControl = rpart_ctrl, preProcess = c("center","scale", "pca"), tuneLength = 20, metric = "F5.4", maximize = TRUE, tuneGrid = rpart_grid)
 
 rpartPredict <- predict(rpartFit, newdata = valid.df)
 
