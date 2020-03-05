@@ -10,7 +10,7 @@ library(AUC)
 library(party)
 library(caret)
 set.seed(5)
-rffit <- randomForest(rating ~ ., data=text_training.df[, -1], ntree=5, keep.forest=FALSE, importance=TRUE)
+rffit <- randomForest(rating ~ ., data=text_training.df[, -1], ntree=2000, keep.forest=FALSE, importance=TRUE)
 importance(rffit) # relative importance of predictors (highest <-> most important)
 a <- varImpPlot(rffit)
 
