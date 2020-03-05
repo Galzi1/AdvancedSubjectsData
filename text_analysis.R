@@ -23,7 +23,7 @@ params <- sapply(parames_names.df, as.character)
 
 params <- rbind(params, 1)
 
-params[1525,] = "rating"
+params[length(params),] = "rating"
 
 text_training_variable_reduce <- text_training.df[ , which(names(text_training.df) %in% params)]
 write.csv(text_training_variable_reduce, "text_training_variable_reduce.csv")
