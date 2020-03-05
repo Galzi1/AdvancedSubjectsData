@@ -1,3 +1,6 @@
+# Gal Ziv,          ID: 205564198
+# Asaf Ben Avraham, ID: 311573943
+
 setwd("D:/ть/RProgramming/AdvancedSubjectsData")
 
 rm(list = ls()) # remove all variables from global environment
@@ -5,218 +8,440 @@ cat("\014") # clear the screen
 
 library(DMwR)
 library(caret)
-library(dplyr)
 library(yardstick)
-library(rpart)
 library(AUC)
+library(parallel)
+library(doParallel)
+library(kernlab)
+library(doSNOW)
+library(klaR)
+library(rpart)
+library(dummies)
+library(sets)
+library(ada)
+library(caTools)
 library(party)
-library(RWeka)
-library(partykit)
-library(randomForest)
-library(tibble)
-library(class)
 library(gbm)
+library(plyr)
+library(mlr)
+
+f_5.4 <- function(data, lev = NULL, model = NULL) {
+  f5.4_val <- F_meas(data$pred, data$obs, beta = 5.4, relevant = "1")
+  names(f5.4_val) <- "F5.4"
+  f5.4_val
+}
+
+get_outliers <- function(df, col, scale_factor) {
+  outliers1 <- c(which(df[, col] > median(df[, col]) + scale_factor * sd(df[, col])))
+  outliers2 <- c(which(df[, col] < median(df[, col]) - scale_factor * sd(df[, col])))
+  union(outliers1, outliers2)
+}
 
 set.seed(5)
 
-data.df <- read.csv("ffp_train_variable_reduce.csv")
-data.df <- data.df[ -c(1) ]
+# creating cluster in order to run in parallel. Adding the required libraries to them
+cl <- makeCluster(detectCores() - 1, outfile = "")
+clusterEvalQ(cl, {
+  library(yardstick) })
+clusterEvalQ(cl, {
+  library(AUC) })
+clusterEvalQ(cl, {
+  library(kernlab) })
+clusterEvalQ(cl, {
+  library(klaR) })
+clusterEvalQ(cl, {
+  library(rpart) })
+clusterEvalQ(cl, {
+  library(caret) })
+clusterEvalQ(cl, {
+  library(ada) })
+clusterEvalQ(cl, {
+  library(caTools) })
+clusterEvalQ(cl, {
+  library(gbm) })
+clusterEvalQ(cl, {
+  library(plyr) })
+clusterEvalQ(cl, {
+  library(mlr) })
+registerDoSNOW(cl)
+
+# loading both files into dataframes and merging them
+data.df <- read.csv("ffp_train.csv")
+reviews.df <- read.csv("reviews_training_result.csv")
+
+data.df <- merge(data.df, reviews.df, by = "ID", all = T)
+
+# removing first column ("ID")
+data.df <- data.df[-c(1)]
 
 # convert columns to correct classes
-# data.df$GROUP <- as.factor(data.df$GROUP)
+data.df$GROUP <- as.factor(data.df$GROUP)
 data.df$STATUS_PANTINUM <- as.factor(data.df$STATUS_PANTINUM)
 data.df$STATUS_GOLD <- as.factor(data.df$STATUS_GOLD)
 data.df$STATUS_SILVER <- as.factor(data.df$STATUS_SILVER)
 data.df$CALL_FLAG <- as.factor(data.df$CALL_FLAG)
-# data.df$CREDIT_PROBLEM <- as.factor(data.df$CREDIT_PROBLEM)
-# data.df$RETURN_FLAG <- as.factor(data.df$RETURN_FLAG)
+data.df$CREDIT_PROBLEM <- as.factor(data.df$CREDIT_PROBLEM)
+data.df$RETURN_FLAG <- as.factor(data.df$RETURN_FLAG)
 data.df$BENEFIT_FLAG <- as.factor(data.df$BENEFIT_FLAG)
 data.df$BUYER_FLAG <- as.factor(data.df$BUYER_FLAG)
 
-# data.df$AVG_FARE_L_Y1 <- data.df$FARE_L_Y1 / data.df$NUM_DEAL
-# # data.df$AVG_FARE_L_Y2 <- data.df$FARE_L_Y2 / data.df$NUM_DEAL
-# data.df$AVG_FARE_L_Y3 <- data.df$FARE_L_Y3 / data.df$NUM_DEAL
-# data.df$AVG_FARE_L_Y4 <- data.df$FARE_L_Y4 / data.df$NUM_DEAL
-# data.df$AVG_FARE_L_Y5 <- data.df$FARE_L_Y5 / data.df$NUM_DEAL
+# remove columns with very low importance
+data.df <- data.df[, -which(names(data.df) %in% c("GROUP", "CREDIT_PROBLEM", "RETURN_FLAG"))]
 
-data.df$NUM_DEAL <- scale(data.df$NUM_DEAL)
-data.df$LAST_DEAL <- scale(data.df$LAST_DEAL)
-data.df$ADVANCE_PURCHASE <- scale(data.df$ADVANCE_PURCHASE)
-data.df$FARE_L_Y1 <- scale(data.df$FARE_L_Y1)
-data.df$FARE_L_Y3 <- scale(data.df$FARE_L_Y3)
-data.df$FARE_L_Y4 <- scale(data.df$FARE_L_Y4)
-data.df$FARE_L_Y5 <- scale(data.df$FARE_L_Y5)
-data.df$POINTS_L_Y1 <- scale(data.df$POINTS_L_Y1)
-data.df$POINTS_L_Y2 <- scale(data.df$POINTS_L_Y2)
-data.df$POINTS_L_Y3 <- scale(data.df$POINTS_L_Y3)
-data.df$POINTS_L_Y4 <- scale(data.df$POINTS_L_Y4)
-data.df$POINTS_L_Y5 <- scale(data.df$POINTS_L_Y5)
+data.df[["rating"]][is.na(data.df[["rating"]])] <- 2
+data.df$rating <- as.factor(data.df$rating)
+data.df <- na.omit(data.df)
 
-# preProcValues <- preProcess(x = trainX,method = c("center", "scale"))
+# remove outliers in integer/numeric variables
+outliers <- c()
 
-# fix imbalanced data
-data.df <- SMOTE(BUYER_FLAG ~ ., data.df, perc.over = 600, perc.under=100)
+for (i in names(data.df)) {
+  if (class(data.df[, i]) == "integer" || class(data.df[, i]) == "numeric") {
+    outliers <- union(outliers, get_outliers(data.df, i, 3))
+  }
+}
 
+data.df <- data.df[-outliers, ]
+
+# create new variable
+data.df$AVG_FARE_L_Y1 <- ifelse(data.df$NUM_DEAL == 0, 0, data.df$FARE_L_Y1 / data.df$NUM_DEAL)
+data.df$AVG_FARE_L_Y2 <- ifelse(data.df$NUM_DEAL == 0, 0, data.df$FARE_L_Y2 / data.df$NUM_DEAL)
+data.df$AVG_FARE_L_Y3 <- ifelse(data.df$NUM_DEAL == 0, 0, data.df$FARE_L_Y3 / data.df$NUM_DEAL)
+data.df$AVG_FARE_L_Y4 <- ifelse(data.df$NUM_DEAL == 0, 0, data.df$FARE_L_Y4 / data.df$NUM_DEAL)
+data.df$AVG_FARE_L_Y5 <- ifelse(data.df$NUM_DEAL == 0, 0, data.df$FARE_L_Y5 / data.df$NUM_DEAL)
+
+# remove outliers in newly created integer/numeric variables
+outliers <- c()
+
+for (i in c("AVG_FARE_L_Y1", "AVG_FARE_L_Y2", "AVG_FARE_L_Y3", "AVG_FARE_L_Y4", "AVG_FARE_L_Y5")) {
+  if (class(data.df[, i]) == "integer" || class(data.df[, i]) == "numeric") {
+    outliers <- union(outliers, get_outliers(data.df, i, 3))
+  }
+}
+
+data.df <- data.df[-outliers, ]
+
+# binning of integer/numeric variables
+for (i in names(data.df)) {
+  if (class(data.df[, i]) == "integer" || class(data.df[, i]) == "numeric") {
+    low_cut <- sort(data.df[, i])[0.30 * length(data.df[, i])]
+    med_cut <- sort(data.df[, i])[0.70 * length(data.df[, i])]
+    bins <- c(-Inf, low_cut, med_cut, Inf)
+    names <- c("Low", "Medium", "High")
+    data.df[, i] <- cut(data.df[, i], breaks = bins, labels = names)
+    
+    data.df <- createDummyFeatures(data.df, cols = i)
+    data.df[, ncol(data.df)] <- as.factor(data.df[, ncol(data.df)])
+    data.df[, ncol(data.df) - 1] <- as.factor(data.df[, ncol(data.df) - 1])
+    data.df[, ncol(data.df) - 2] <- as.factor(data.df[, ncol(data.df) - 2])
+  }
+}
 
 # partition the data
 train.index <- sample(1:dim(data.df)[1], dim(data.df)*0.7)
 train.df <- data.df[train.index, ]
-valid.df <- data.df[-train.index, ]
+test.df <- data.df[-train.index, ]
 
-# count BUYER_FLAG values per level of factor (0 or 1)
+ctrl <- trainControl(method = "repeatedcv", number = 10, repeats = 3, verboseIter = TRUE, summaryFunction = f_5.4, allowParallel = TRUE, sampling = "smote")
 
-valid.df %>% 
-  group_by(BUYER_FLAG) %>%
-  summarise(no_rows = length(BUYER_FLAG))
+# knn
+knn_grid <- expand.grid(k = 1:10)
+set.seed(5)
+knnFit <- caret::train(BUYER_FLAG ~ ., data = train.df, method = "knn", trControl = ctrl, preProcess = c("zv", "center", "scale", "pca"), tuneLength = 20, metric = "F5.4", maximize = TRUE)
 
-f5.4 <- function(data, lev = NULL, model = NULL) {
-  f5.4_val <- f_meas_vec(data$pred, data$obs, beta = 5.4)
-  c(F5.4 = f5.4_val)
-}
+knnPredict <- predict(knnFit, newdata = test.df)
 
-tc <- trainControl(method = "repeatedcv", number = 10, repeats = 3, summaryFunction = f5.4)
-rpart.grid <- expand.grid(.cp=0.2)
-train.rpart <- train(BUYER_FLAG ~., data=train.df, method="rpart",trControl=tc, metric="F5.4")
-pred <- predict(train.rpart, valid.df)
+knnConfMat <- confusionMatrix(knnPredict, test.df$BUYER_FLAG, positive = "1")
+knnConfMat
+knnTP <- knnConfMat$table[2, 2]
+knnFP <- knnConfMat$table[2, 1]
+knnFN <- knnConfMat$table[1, 2]
+knnProfit <- knnTP * 54 - knnFP * 10 - knnFN * 54
+knnProfit
 
-# classification tree - rpart
-tr <- rpart(BUYER_FLAG ~ ., data = train.df, method = "class")
-# plot(tr)
-pred <- predict(tr, valid.df, type = "class")
+knnF5.4 <- F_meas(knnPredict, test.df$BUYER_FLAG, beta = 5.4, relevant = "1")
+knnF5.4
 
-confusionMatrix(pred, valid.df$BUYER_FLAG, positive='1')
+knn_r <- roc(knnPredict, as.factor(test.df$BUYER_FLAG))
 
-# f_meas_vec(pred, valid.df$BUYER_FLAG, beta = 2)
-f_meas_vec(pred, valid.df$BUYER_FLAG, beta = 5.4)
+knnAUC <- auc(knn_r)
+knnAUC
 
-r <- roc(pred, as.factor(valid.df$BUYER_FLAG))
-# plot(r)
-auc(r)
+# random forest
+rf_grid <- expand.grid(mtry = c(2, 3, 4, 5, 10))
+rf_ctrl <- trainControl(method = "repeatedcv", number = 10, repeats = 3, verboseIter = TRUE, summaryFunction = f_5.4, sampling = "smote")
 
-# classification tree - ctree
-tr <- ctree(BUYER_FLAG ~ ., data = train.df)
-# plot(tr)
-pred <- predict(tr, valid.df)
+set.seed(5)
+rfFit <- caret::train(BUYER_FLAG ~ ., data = train.df, method = "rf", trControl = rf_ctrl, preProcess = c("zv", "center", "scale", "pca"), tuneLength = 20, metric = "F5.4", maximize = TRUE, ntree = 2000, tuneGrid = rf_grid)
 
-confusionMatrix(pred, valid.df$BUYER_FLAG, positive='1')
+rfPredict <- predict(rfFit, newdata = test.df)
 
-# f_meas_vec(pred, valid.df$BUYER_FLAG, beta = 2)
-f_meas_vec(pred, valid.df$BUYER_FLAG, beta = 5.4)
+rfConfMat <- confusionMatrix(rfPredict, test.df$BUYER_FLAG, positive = "1")
+rfConfMat
+rfTP <- rfConfMat$table[2, 2]
+rfFP <- rfConfMat$table[2, 1]
+rfFN <- rfConfMat$table[1, 2]
+rfProfit <- rfTP * 54 - rfFP * 10 - rfFN * 54
+rfProfit
 
-r <- roc(pred, as.factor(valid.df$BUYER_FLAG))
-# plot(r)
-auc(r)
+rfF5.4 <- F_meas(rfPredict, test.df$BUYER_FLAG, beta = 5.4, relevant = "1")
+rfF5.4
 
-# classification tree - C4.5 algorithm (J48 in RWeka)
-tr <- J48(BUYER_FLAG ~ ., data = train.df)
-# plot(tr)
-pred <- predict(tr, valid.df)
+rf_r <- roc(rfPredict, as.factor(test.df$BUYER_FLAG))
 
-confusionMatrix(pred, valid.df$BUYER_FLAG, positive='1')
+rfAUC <- auc(rf_r)
+rfAUC
 
-# f_meas_vec(pred, valid.df$BUYER_FLAG, beta = 2)
-f_meas_vec(pred, valid.df$BUYER_FLAG, beta = 5.4)
+# neural network
+nnetCtrl <- trainControl(method = "repeatedcv", number = 10, repeats = 3, verboseIter = TRUE, summaryFunction = f_5.4, allowParallel = TRUE, sampling = "smote")
+nnet_grid <- expand.grid(size = c(2, 3, 4, 5, 10, 15), decay = c(0, 0.01, 0.05, 0.1))
+set.seed(5)
+nnetFit <- caret::train(BUYER_FLAG ~ ., data = train.df, method = "nnet", trControl = nnetCtrl, preProcess = c("zv", "center", "scale", "pca"), tuneLength = 20, metric = "F5.4", maximize = TRUE, trace = F, linout = 0, maxit = 1000, tuneGrid = nnet_grid)
 
-r <- roc(pred, as.factor(valid.df$BUYER_FLAG))
-# plot(r)
-auc(r)
+nnetPredict <- predict(nnetFit, newdata = test.df)
 
-# random forest - randomForest
-rf <- randomForest(BUYER_FLAG ~ ., data = train.df, ntree = 1000)
-pred <- predict(rf, valid.df)
+nnetConfMat <- confusionMatrix(nnetPredict, test.df$BUYER_FLAG, positive = "1")
+nnetConfMat
+nnetTP <- nnetConfMat$table[2, 2]
+nnetFP <- nnetConfMat$table[2, 1]
+nnetFN <- nnetConfMat$table[1, 2]
+nnetProfit <- nnetTP * 54 - nnetFP * 10 - nnetFN * 54
+nnetProfit
 
-confusionMatrix(pred, valid.df$BUYER_FLAG, positive='1')
 
-# f_meas_vec(pred, valid.df$BUYER_FLAG, beta = 2)
-f_meas_vec(pred, valid.df$BUYER_FLAG, beta = 5.4)
+nnetF5.4 <- F_meas(nnetPredict, test.df$BUYER_FLAG, beta = 5.4, relevant = "1")
+nnetF5.4
 
-r <- roc(pred, as.factor(valid.df$BUYER_FLAG))
-# plot(r)
-auc(r)
+nnet_r <- roc(nnetPredict, as.factor(test.df$BUYER_FLAG))
 
-k_values <- c(seq(from=5, to=10005, by=100))
-num_k <- length(k_values)
-error_df <- tibble(k=rep(0, num_k),
-                   f5.4=rep(0, num_k),
-                   auc=rep(0, num_k))
+nnetAUC <- auc(nnet_r)
+nnetAUC
 
-for(i in 1:num_k)
-{
-  
-  # fix k for this loop iteration
-  k_val <- k_values[i]
-  
-  # k-nearest neighbour
-  knn_m <- knn(train = train.df, test = valid.df, cl = train.df$BUYER_FLAG, k=k_val)
-  
-  # f_meas_vec(knn_m, as.factor(valid.df$BUYER_FLAG), beta = 2)
-  f_val <- f_meas_vec(knn_m, as.factor(valid.df$BUYER_FLAG), beta = 5.4)
-  
-  r <- roc(knn_m, as.factor(as.factor(valid.df$BUYER_FLAG)))
-  # plot(r)
-  auc_val <- auc(r)
-  
-  error_df[i, 'k'] <- k_val
-  error_df[i, 'f5.4'] <- f_val
-  error_df[i, 'auc'] <- auc_val
-  print(paste('k:', k_val, 'f5.4:', f_val, 'auc:', auc_val, sep = " "))
-}
+# supported vector machines with radial basis function kernel
+svmr_grid <- expand.grid(C = c(-2, 0, 0.5, 2, 5, 10, 100), sigma = c(0.0001, 0.001, 0.01, 0.1, 1))
+set.seed(5)
+svmrFit <- caret::train(BUYER_FLAG ~ ., data = train.df, method = "svmRadial", trControl = ctrl, preProcess = c("zv", "center", "scale", "pca"), tuneLength = 20, metric = "F5.4", maximize = TRUE, maxit = 1000, tuneGrid = svmr_grid)
 
-print(error_df)
+svmrPredict <- predict(svmrFit, newdata = test.df)
 
-# library(class)
-# # k-nearest neighbour
-# knn_m <- knn(train = train.df, test = valid.df, cl = train.df$BUYER_FLAG, k=5)
-# 
-# library(caret)
-# confusionMatrix(knn_m, as.factor(valid.df$BUYER_FLAG), positive='1')
-# 
-# library(yardstick)
-# # f_meas_vec(knn_m, as.factor(valid.df$BUYER_FLAG), beta = 2)
-# f_meas_vec(knn_m, as.factor(valid.df$BUYER_FLAG), beta = 5.4)
-# 
-# library(AUC)
-# r <- roc(knn_m, as.factor(as.factor(valid.df$BUYER_FLAG)))
-# # plot(r)
-# auc(r)
+svmrConfMat <- confusionMatrix(svmrPredict, test.df$BUYER_FLAG, positive = "1")
+svmrConfMat
+svmrTP <- svmrConfMat$table[2, 2]
+svmrFP <- svmrConfMat$table[2, 1]
+svmrFN <- svmrConfMat$table[1, 2]
+svmrProfit <- svmrTP * 54 - svmrFP * 10 - svmrFN * 54
+svmrProfit
+
+svmrF5.4 <- F_meas(svmrPredict, test.df$BUYER_FLAG, beta = 5.4, relevant = "1")
+svmrF5.4
+
+svmr_r <- roc(svmrPredict, as.factor(test.df$BUYER_FLAG))
+
+svmrAUC <- auc(svmr_r)
+svmrAUC
+
+# bayesian networks - naive bayes
+nb_grid <- expand.grid(
+  usekernel = c(TRUE, FALSE),
+  fL = 0:5,
+  adjust = seq(0, 5, by = 1)
+)
+
+set.seed(5)
+nbFit <- caret::train(BUYER_FLAG ~ ., data = train.df, method = "nb", trControl = ctrl, preProcess = c("zv", "center", "scale", "pca"), tuneLength = 20, metric = "F5.4", maximize = TRUE, maxit = 1000, tuneGrid = nb_grid)
+
+nbPredict <- predict(nbFit, newdata = test.df)
+
+nbConfMat <- confusionMatrix(nbPredict, test.df$BUYER_FLAG, positive = "1")
+nbConfMat
+nbTP <- nbConfMat$table[2, 2]
+nbFP <- nbConfMat$table[2, 1]
+nbFN <- nbConfMat$table[1, 2]
+nbProfit <- nbTP * 54 - nbFP * 10 - nbFN * 54
+nbProfit
+
+nbF5.4 <- F_meas(nbPredict, test.df$BUYER_FLAG, beta = 5.4, relevant = "1")
+nbF5.4
+
+nb_r <- roc(nbPredict, as.factor(test.df$BUYER_FLAG))
+
+nbAUC <- auc(nb_r)
+nbAUC
+
+# rpart
+rpart_ctrl <- trainControl(method = "repeatedcv", number = 10, repeats = 3, verboseIter = TRUE, summaryFunction = f_5.4, sampling = "smote")
+rpart_grid <- expand.grid(cp = seq(0.01, 1, by = 0.01))
+set.seed(5)
+rpartFit <- caret::train(BUYER_FLAG ~ ., data = train.df, method = "rpart", trControl = rpart_ctrl, preProcess = c("zv", "center", "scale", "pca"), tuneLength = 20, metric = "F5.4", maximize = TRUE, tuneGrid = rpart_grid)
+
+rpartPredict <- predict(rpartFit, newdata = test.df)
+
+rpartConfMat <- confusionMatrix(rpartPredict, test.df$BUYER_FLAG, positive = "1")
+rpartConfMat
+rpartTP <- rpartConfMat$table[2, 2]
+rpartFP <- rpartConfMat$table[2, 1]
+rpartFN <- rpartConfMat$table[1, 2]
+rpartProfit <- rpartTP * 54 - rpartFP * 10 - rpartFN * 54
+rpartProfit
+
+rpartF5.4 <- F_meas(rpartPredict, test.df$BUYER_FLAG, beta = 5.4, relevant = "1")
+rpartF5.4
+
+rpart_r <- roc(rpartPredict, as.factor(test.df$BUYER_FLAG))
+
+rpartAUC <- auc(rpart_r)
+rpartAUC
+
+# ctree
+ctree_ctrl <- trainControl(method = "repeatedcv", number = 10, repeats = 3, verboseIter = TRUE, summaryFunction = f_5.4, sampling = "smote")
+ctree_grid <- expand.grid(mincriterion = seq(0.05, 0.95, by = 0.05))
+set.seed(5)
+ctreeFit <- caret::train(BUYER_FLAG ~ ., data = train.df, method = "ctree", trControl = ctree_ctrl, preProcess = c("zv", "center", "scale", "pca"), tuneLength = 20, metric = "F5.4", maximize = TRUE, tuneGrid = ctree_grid)
+
+ctreePredict <- predict(ctreeFit, newdata = test.df)
+
+ctreeConfMat <- confusionMatrix(ctreePredict, test.df$BUYER_FLAG, positive = "1")
+ctreeConfMat
+ctreeTP <- ctreeConfMat$table[2, 2]
+ctreeFP <- ctreeConfMat$table[2, 1]
+ctreeFN <- ctreeConfMat$table[1, 2]
+ctreeProfit <- ctreeTP * 54 - ctreeFP * 10 - ctreeFN * 54
+ctreeProfit
+
+ctreeF5.4 <- F_meas(ctreePredict, test.df$BUYER_FLAG, beta = 5.4, relevant = "1")
+ctreeF5.4
+
+ctree_r <- roc(ctreePredict, as.factor(test.df$BUYER_FLAG))
+
+ctreeAUC <- auc(ctree_r)
+ctreeAUC
+
+# adaptive boosted classification trees (ada-boost)
+ada_grid <- expand.grid(iter = c(100, 300, 500), maxdepth = c(2, 3, 4, 5), nu = c(0.01, 0.05, 0.1))
+set.seed(5)
+adaFit <- caret::train(BUYER_FLAG ~ ., data = train.df, method = "ada", trControl = ctrl, preProcess = c("zv", "center", "scale", "pca"), tuneLength = 20, metric = "F5.4", maximize = TRUE, tuneGrid = ada_grid)
+
+adaPredict <- predict(adaFit, newdata = test.df)
+
+adaConfMat <- confusionMatrix(adaPredict, test.df$BUYER_FLAG, positive = "1")
+adaConfMat
+adaTP <- adaConfMat$table[2, 2]
+adaFP <- adaConfMat$table[2, 1]
+adaFN <- adaConfMat$table[1, 2]
+adaProfit <- adaTP * 54 - adaFP * 10 - adaFN * 54
+adaProfit
+
+adaF5.4 <- F_meas(adaPredict, test.df$BUYER_FLAG, beta = 5.4, relevant = "1")
+adaF5.4
+
+ada_r <- roc(adaPredict, as.factor(test.df$BUYER_FLAG))
+
+adaAUC <- auc(ada_r)
+adaAUC
 
 # logistic regression
-lr <- glm(BUYER_FLAG ~ ., data = train.df, family = binomial())
-pred <- predict(lr, valid.df, type = 'response')
-pred_f <- as.factor(ifelse(pred > 0.5, 1, 0))
+set.seed(5)
+glmFit <- caret::train(BUYER_FLAG ~ ., data = train.df, method = "glm", trControl = ctrl, preProcess = c("zv", "center", "scale", "pca"), tuneLength = 20, metric = "F5.4", maximize = TRUE, family="binomial")
 
-confusionMatrix(pred_f, as.factor(valid.df$BUYER_FLAG), positive='1')
+glmPredict <- predict(glmFit, newdata = test.df)
 
-# f_meas_vec(pred, valid.df$BUYER_FLAG, beta = 2)
-f_meas_vec(pred_f, valid.df$BUYER_FLAG, beta = 5.4)
+glmConfMat <- confusionMatrix(glmPredict, test.df$BUYER_FLAG, positive = "1")
+glmConfMat
+glmTP <- glmConfMat$table[2, 2]
+glmFP <- glmConfMat$table[2, 1]
+glmFN <- glmConfMat$table[1, 2]
+glmProfit <- glmTP * 54 - glmFP * 10 - glmFN * 54
+glmProfit
 
-r <- roc(pred_f, as.factor(valid.df$BUYER_FLAG))
-# plot(r)
-auc(r)
+glmF5.4 <- F_meas(glmPredict, test.df$BUYER_FLAG, beta = 5.4, relevant = "1")
+glmF5.4
 
-# gradient boosting - gbm
-gb <- gbm(BUYER_FLAG ~ ., distribution = "bernoulli", data = train.df, n.trees = 1000, interaction.depth = 4, shrinkage = 0.01)
-pred <- predict(gb, valid.df, n.trees = 100, type = "response")
+glm_r <- roc(glmPredict, as.factor(test.df$BUYER_FLAG))
 
-confusionMatrix(pred, valid.df$BUYER_FLAG, positive='1')
+glmAUC <- auc(glm_r)
+glmAUC
 
-# f_meas_vec(pred, valid.df$BUYER_FLAG, beta = 2)
-f_meas_vec(pred, valid.df$BUYER_FLAG, beta = 5.4)
+# stochastic gradient boosting
+gbm_grid <- expand.grid(n.trees = c(50, 100, 500, 1000, 1500, 2000), interaction.depth = (1:5), shrinkage = c(0.005, 0.01, 0.05, 0.1, 0.5), n.minobsinnode = c(5, 10, 15))
 
-r <- roc(pred, as.factor(valid.df$BUYER_FLAG))
-plot(r)
-auc(r)
+set.seed(5)
+gbmFit <- caret::train(BUYER_FLAG ~ ., data = train.df, method = "gbm", trControl = ctrl, preProcess = c("zv", "center", "scale", "pca"), metric = "F5.4", maximize = TRUE, tuneGrid = gbm_grid, distribution = "bernoulli")
 
-# gradient boosting - xgboost
-xgb <-xgboost(data = train.df, label = train.df$BUYER_FLAG, max.depth = 2, eta = 1, nthread = 2, nround = 2, objective = "binary:logistic")
-pred <- predict(xgb, valid.df)
+gbmPredict <- predict(gbmFit, newdata = test.df)
 
-confusionMatrix(pred, valid.df$BUYER_FLAG, positive='1')
+gbmConfMat <- confusionMatrix(gbmPredict, test.df$BUYER_FLAG, positive = "1")
+gbmConfMat
+gbmTP <- gbmConfMat$table[2, 2]
+gbmFP <- gbmConfMat$table[2, 1]
+gbmFN <- gbmConfMat$table[1, 2]
+gbmProfit <- gbmTP * 54 - gbmFP * 10 - gbmFN * 54
+gbmProfit
 
-# f_meas_vec(pred, valid.df$BUYER_FLAG, beta = 2)
-f_meas_vec(pred, valid.df$BUYER_FLAG, beta = 5.4)
+gbmF5.4 <- F_meas(gbmPredict, test.df$BUYER_FLAG, beta = 5.4, relevant = "1")
+gbmF5.4
 
-r <- roc(pred, as.factor(valid.df$BUYER_FLAG))
-plot(r)
-auc(r)
+gbm_r <- roc(gbmPredict, as.factor(test.df$BUYER_FLAG))
+
+gbmAUC <- auc(gbm_r)
+gbmAUC
+
+# After processing the data, we can explicitly shut down the cluster if needed
+stopCluster(cluster)
+
+###############################################################################
+
+# predicting on selected fitted model and creating "recommendations.csv" file
+rollout.df <- read.csv("ffp_rollout_X.csv")
+reviews_rollout_result.df <- read.csv("reviews_rollout_result.csv")
+
+rollout.df <- merge(rollout.df, reviews_rollout_result.df, by = "ID", all = T)
+  
+# removing first column ("ID")
+rollout.df <- rollout.df[-c(1)]
+
+# convert columns to correct classes
+rollout.df$GROUP <- as.factor(rollout.df$GROUP)
+rollout.df$STATUS_PANTINUM <- as.factor(rollout.df$STATUS_PANTINUM)
+rollout.df$STATUS_GOLD <- as.factor(rollout.df$STATUS_GOLD)
+rollout.df$STATUS_SILVER <- as.factor(rollout.df$STATUS_SILVER)
+rollout.df$CALL_FLAG <- as.factor(rollout.df$CALL_FLAG)
+rollout.df$CREDIT_PROBLEM <- as.factor(rollout.df$CREDIT_PROBLEM)
+rollout.df$RETURN_FLAG <- as.factor(rollout.df$RETURN_FLAG)
+rollout.df$BENEFIT_FLAG <- as.factor(rollout.df$BENEFIT_FLAG)
+rollout.df$BUYER_FLAG <- as.factor(rollout.df$BUYER_FLAG)
+
+# remove columns with very low importance
+rollout.df <- rollout.df[, -which(names(rollout.df) %in% c("GROUP", "CREDIT_PROBLEM", "RETURN_FLAG"))]
+
+rollout.df[["rating"]][is.na(rollout.df[["rating"]])] <- 2
+rollout.df$rating <- as.factor(rollout.df$rating)
+rollout.df <- na.omit(rollout.df)
+
+# create new variable
+rollout.df$AVG_FARE_L_Y1 <- ifelse(rollout.df$NUM_DEAL == 0, 0, rollout.df$FARE_L_Y1 / rollout.df$NUM_DEAL)
+rollout.df$AVG_FARE_L_Y2 <- ifelse(rollout.df$NUM_DEAL == 0, 0, rollout.df$FARE_L_Y2 / rollout.df$NUM_DEAL)
+rollout.df$AVG_FARE_L_Y3 <- ifelse(rollout.df$NUM_DEAL == 0, 0, rollout.df$FARE_L_Y3 / rollout.df$NUM_DEAL)
+rollout.df$AVG_FARE_L_Y4 <- ifelse(rollout.df$NUM_DEAL == 0, 0, rollout.df$FARE_L_Y4 / rollout.df$NUM_DEAL)
+rollout.df$AVG_FARE_L_Y5 <- ifelse(rollout.df$NUM_DEAL == 0, 0, rollout.df$FARE_L_Y5 / rollout.df$NUM_DEAL)
+
+# binning of integer/numeric variables
+for (i in names(rollout.df)) {
+  if (class(rollout.df[, i]) == "integer" || class(rollout.df[, i]) == "numeric") {
+    low_cut <- sort(rollout.df[, i])[0.30 * length(rollout.df[, i])]
+    med_cut <- sort(rollout.df[, i])[0.70 * length(rollout.df[, i])]
+    bins <- c(-Inf, low_cut, med_cut, Inf)
+    names <- c("Low", "Medium", "High")
+    rollout.df[, i] <- cut(rollout.df[, i], breaks = bins, labels = names)
+    
+    rollout.df <- createDummyFeatures(rollout.df, cols = i)
+    rollout.df[, ncol(rollout.df)] <- as.factor(rollout.df[, ncol(rollout.df)])
+    rollout.df[, ncol(rollout.df) - 1] <- as.factor(rollout.df[, ncol(rollout.df) - 1])
+    rollout.df[, ncol(rollout.df) - 2] <- as.factor(rollout.df[, ncol(rollout.df) - 2])
+  }
+}
+
+finalPredict <- predict(rpartFit, newdata = rollout.df)
+finalPredict <- as.integer(as.character(finalPredict))
+rollout_ID = 45001:65000
+write.csv(cbind(ID = rollout_ID, BUYER_FLAG = s1), "recommendations.csv", row.names = FALSE)
 
